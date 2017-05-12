@@ -16,8 +16,8 @@ make
 ## Usage
 
 The `bf` executable takes one argument, the name of the brainfuck file to run.
-There are some example `bf` executables from another brainfuck interpreter
-(i.e. I did not write these programs).
+There are some example `bf` programs from another brainfuck interpreter (i.e. I
+did not write these programs).
 
 ```
 ./bf ./brainfuck/programs/hello.bf
