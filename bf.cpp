@@ -41,7 +41,9 @@ class BrainFuckVM : public TR::MethodBuilder {
 };
 
 TapeCell BrainFuckVM::getCharacter() {
-  return 'a';
+  TapeCell input;
+  std::cin >> input;
+  return input;
 }
 
 void BrainFuckVM::putCharacter(TapeCell character) {
