@@ -1,7 +1,7 @@
 #include <boost/interprocess/file_mapping.hpp>
 #include <boost/interprocess/mapped_region.hpp>
 #include <cstddef>
-#include <cstdint.h>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <stack>
@@ -87,42 +87,64 @@ bool BrainFuckVM::buildIL() {
   TR::IlBuilder *closeBuilder;
   TR::IlBuilder *b  = this;
 
+  TR::IlValue *pointerLocation = b->ConstInt64(0);
+
   b->Store("tapeCellPointer", b->ConstAddress(&tape));
+  int64_t tapeCellPointerOffset = 0;
+
   for (const char *byteCode = byteCodes_; byteCode < &byteCodes_[numberOfByteCodes_]; byteCode++) {
     switch (*byteCode) {
       case '>': // Move the pointer forward by 1.
-        b->Store("tapeCellPointer", b->Add(b->Load("tapeCellPointer"), b->ConstInt64(1)));
+        tapeCellPointerOffset++;
         break;
       case '<': // Move the pointer backward by 1.
-        b->Store("tapeCellPointer", b->Sub(b->Load("tapeCellPointer"), b->ConstInt64(1)));
+        tapeCellPointerOffset--;
         break;
       case '+': // Increment the cell at the current pointer.
-        b->StoreAt(b->Load("tapeCellPointer"), b->Add(b->LoadAt(tapeCellPointerType, b->Load("tapeCellPointer")), b->ConstInt8(1)));
+        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
+        b->StoreAt(pointerLocation, b->Add(b->LoadAt(tapeCellPointerType, pointerLocation), b->ConstInt8(1)));
         break;
       case '-': // Decrements the cell at the current pointer.
-        b->StoreAt(b->Load("tapeCellPointer"), b->Sub(b->LoadAt(tapeCellPointerType, b->Load("tapeCellPointer")), b->ConstInt8(1)));
+        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
+        b->StoreAt(pointerLocation, b->Sub(b->LoadAt(tapeCellPointerType, pointerLocation), b->ConstInt8(1)));
         break;
       case '.': // Output the character at the current cell.
-        b->Call("putCharacter", 1, b->LoadAt(tapeCellPointerType, b->Load("tapeCellPointer")), b->ConstInt8(1));
+        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
+        b->Call("putCharacter", 1, b->LoadAt(tapeCellPointerType, pointerLocation));
         break;
       case ',': // Read a character into the current cell (for our purposes, EOF produces 0).
-        b->StoreAt(b->Load("tapeCellPointer"), b->Call("getCharacter", 0));
+        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
+        b->StoreAt(pointerLocation, b->Call("getCharacter", 0));
         break;
       case '[': // If the current cell is zero, skips to the matching ] later on.
         openBuilder = OrphanBuilder();
         closeBuilder = OrphanBuilder();
+
+        // reset the pointer offset when entering a new block
+        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
+        b->Store("tapeCellPointer", pointerLocation);
+        tapeCellPointerOffset = 0;
+
         b->IfThenElse(&openBuilder, &closeBuilder,
             b->NotEqualTo(b->ConstInt8(0), b->LoadAt(tapeCellPointerType, b->Load("tapeCellPointer"))));
         b = openBuilder;
+
         openStack.push(openBuilder);
         closeStack.push(closeBuilder);
         break;
       case ']': // If the current cell is non-zero, skips to the matching [ earlier on.
         closeBuilder = closeStack.top();
         openBuilder = openStack.top();
+
+        // reset the pointer offset when entering a new block
+        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
+        b->Store("tapeCellPointer", pointerLocation);
+        tapeCellPointerOffset = 0;
+
         b->IfThenElse(&openBuilder, &closeBuilder,
             b->NotEqualTo(b->ConstInt8(0), b->LoadAt(tapeCellPointerType, b->Load("tapeCellPointer"))));
         b = closeBuilder;
+
         openStack.pop();
         closeStack.pop();
         break;
