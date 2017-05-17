@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stack>
 #include <string>
+#include <map>
 
 #include "Jit.hpp"
 #include "ilgen/MethodBuilder.hpp"
@@ -24,6 +25,11 @@ class BrainFuckVM : public TR::MethodBuilder {
   static TapeCell getCharacter();
   static void putCharacter(TapeCell character);
   bool buildIL() override;
+
+  // For local caching
+  TR::IlValue *getLocal(TR::IlBuilder *b, std::map<int, TR::IlValue *> &locals, int local);
+  void setLocal(TR::IlBuilder *b, std::map<int, TR::IlValue *> &locals, int local, TR::IlValue *value);
+  void commitLocalsToTape(TR::IlBuilder *b, std::map<int, TR::IlValue *> &locals);
 
   TR::IlType *tapeCellType;
   TR::IlType *tapeCellPointerType;
@@ -80,15 +86,43 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
   (*compiledFunction)();
 }
 
+/* Cache local tape values */
+TR::IlValue *BrainFuckVM::getLocal(TR::IlBuilder *b, std::map<int, TR::IlValue *> &locals, int local) {
+  TR::IlValue * value = nullptr;
+  auto search = locals.find(local);
+  if(search == locals.end()) {
+    value = b->LoadAt(tapeCellPointerType, b->Add(b->Load("tapeCellPointer"), b->ConstInt64(local)));
+    locals[local] = value;
+  } else {
+    value = search->second;
+  }
+
+  return value;
+}
+
+void BrainFuckVM::setLocal(TR::IlBuilder *b, std::map<int, TR::IlValue *> &locals, int local, TR::IlValue *value) {
+  locals[local] = value;
+}
+
+void BrainFuckVM::commitLocalsToTape(TR::IlBuilder *b, std::map<int, TR::IlValue *> &locals) {
+  for(auto it = locals.begin(); it != locals.end(); ++it)
+  {
+    TR::IlValue *pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(it->first));
+    b->StoreAt(pointerLocation, it->second);
+  }
+
+  locals.clear();
+}
+
 bool BrainFuckVM::buildIL() {
   std::stack<TR::IlBuilder*> openStack;
   std::stack<TR::IlBuilder*> closeStack;
+  std::map<int, TR::IlValue *> locals;
   TR::IlBuilder *openBuilder;
   TR::IlBuilder *closeBuilder;
   TR::IlBuilder *b  = this;
 
-  TR::IlValue *pointerLocation = b->ConstInt64(0);
-
+  TR::IlValue *pointerLocation = nullptr;
   b->Store("tapeCellPointer", b->ConstAddress(&tape));
   int64_t tapeCellPointerOffset = 0;
 
@@ -101,24 +135,22 @@ bool BrainFuckVM::buildIL() {
         tapeCellPointerOffset--;
         break;
       case '+': // Increment the cell at the current pointer.
-        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
-        b->StoreAt(pointerLocation, b->Add(b->LoadAt(tapeCellPointerType, pointerLocation), b->ConstInt8(1)));
+        setLocal(b, locals, tapeCellPointerOffset, b->Add(getLocal(b, locals, tapeCellPointerOffset), b->ConstInt8(1)));
         break;
       case '-': // Decrements the cell at the current pointer.
-        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
-        b->StoreAt(pointerLocation, b->Sub(b->LoadAt(tapeCellPointerType, pointerLocation), b->ConstInt8(1)));
+        setLocal(b, locals, tapeCellPointerOffset, b->Sub(getLocal(b, locals, tapeCellPointerOffset), b->ConstInt8(1)));
         break;
       case '.': // Output the character at the current cell.
-        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
-        b->Call("putCharacter", 1, b->LoadAt(tapeCellPointerType, pointerLocation));
+        b->Call("putCharacter", 1, getLocal(b, locals, tapeCellPointerOffset));
         break;
       case ',': // Read a character into the current cell (for our purposes, EOF produces 0).
-        pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
-        b->StoreAt(pointerLocation, b->Call("getCharacter", 0));
+        setLocal(b, locals, tapeCellPointerOffset, b->Call("getCharacter", 0));
         break;
       case '[': // If the current cell is zero, skips to the matching ] later on.
         openBuilder = OrphanBuilder();
         closeBuilder = OrphanBuilder();
+
+        commitLocalsToTape(b, locals);
 
         // reset the pointer offset when entering a new block
         pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
@@ -135,6 +167,8 @@ bool BrainFuckVM::buildIL() {
       case ']': // If the current cell is non-zero, skips to the matching [ earlier on.
         closeBuilder = closeStack.top();
         openBuilder = openStack.top();
+
+        commitLocalsToTape(b, locals);
 
         // reset the pointer offset when entering a new block
         pointerLocation = b->Add(b->Load("tapeCellPointer"), b->ConstInt64(tapeCellPointerOffset));
