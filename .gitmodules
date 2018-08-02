@@ -1,6 +1,6 @@
 [submodule "omr"]
 	path = omr
-	url = https://github.com/eclipse/omr.git
+	url = https://github.com/sharon-wang/omr.git
 [submodule "brainfuck"]
 	path = brainfuck
 	url = https://github.com/pablojorge/brainfuck
