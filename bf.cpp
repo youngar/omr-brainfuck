@@ -15,6 +15,9 @@
 #include "ilgen/TypeDictionary.hpp"
 #include "imperium/imperium.hpp"
 
+// If defined this will make the compiled code take the pointer to
+// the tape as a function parameter instead of a local
+#define USE_TAPE_PARAM
 namespace bf {
 
 using TapeCell = uint8_t;
@@ -69,7 +72,11 @@ BrainFuckVM::BrainFuckVM(TR::TypeDictionary *types,
   // DefineReturnType(NoType);
   DefineReturnType(Int32);
   DefineLocal("dummy", Int8);
+#ifdef USE_TAPE_PARAM
+  DefineParameter("tapeCellPointer", tapeCellPointerType);
+#else
   DefineLocal("tapeCellPointer", tapeCellPointerType);
+#endif
   DefineFunction("putCharacter", __FILE__, "putCharacter",
                  reinterpret_cast<void *>(&bf::BrainFuckVM::putCharacter),
                  NoType, 1, tapeCellType);
@@ -92,10 +99,15 @@ void BrainFuckVM::andrew(char *byteCodes, std::size_t numberOfByteCodes, char *f
   /* Zero the tape */
   std::memset(tape, 0, tapeSize);
 
+#ifdef USE_TAPE_PARAM
+  uint32_t (*compiledFunction)(void*) =
+    reinterpret_cast<decltype(compiledFunction)>(entryPoint);
+  (*compiledFunction)(&tape);
+#else
   uint32_t (*compiledFunction)() =
     reinterpret_cast<decltype(compiledFunction)>(entryPoint);
   (*compiledFunction)();
-
+#endif
   client.shutdown();
 
   // uint8_t *entry;
@@ -124,9 +136,15 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
     return;
   }
 
+#ifdef USE_TAPE_PARAM
+  void (*compiledFunction)(void *) =
+      reinterpret_cast<decltype(compiledFunction)>(entry);
+  (*compiledFunction)(&tape);
+#else
   void (*compiledFunction)() =
       reinterpret_cast<decltype(compiledFunction)>(entry);
   (*compiledFunction)();
+#endif
 }
 
 /* Cache local tape values */
@@ -172,7 +190,9 @@ bool BrainFuckVM::buildIL() {
   TR::IlBuilder *b = this;
 
   TR::IlValue *pointerLocation = nullptr;
+#ifndef USE_TAPE_PARAM
   b->Store("tapeCellPointer", b->ConstAddress(&tape));
+#endif
   int64_t tapeCellPointerOffset = 0;
 
   b->Call("putCharacter", 1, b->ConstInt8(97));
