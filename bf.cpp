@@ -1,25 +1,30 @@
-#include <boost/interprocess/file_mapping.hpp>
-#include <boost/interprocess/mapped_region.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <fcntl.h>
 #include <iostream>
 #include <map>
 #include <stack>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "Jit.hpp"
 #include "ilgen/JitBuilderRecorder.hpp"
 #include "ilgen/JitBuilderRecorderTextFile.hpp"
 #include "ilgen/MethodBuilder.hpp"
 #include "ilgen/TypeDictionary.hpp"
-
 #include "imperium/imperium.hpp"
+
 namespace bf {
 
 using TapeCell = uint8_t;
 
 extern "C" {
+
 TapeCell bf_get_character() {
   TapeCell input;
   std::cin >> input;
@@ -27,6 +32,7 @@ TapeCell bf_get_character() {
 }
 
 void bf_put_character(TapeCell character) { std::cout << character; }
+
 } // extern "C"
 
 class MethodBuilder final : public TR::MethodBuilder {
@@ -86,14 +92,11 @@ MethodBuilder::MethodBuilder(TR::TypeDictionary *types, char *byteCodes,
   DefineLocal("dummy", Int8);
   DefineLocal("tapeCellPointer", tapeCellPointerType);
   DefineFunction("putCharacter", __FILE__, "putCharacter",
-                 reinterpret_cast<void *>(&bf_put_character), NoType,
-                 1, tapeCellType);
+                 reinterpret_cast<void *>(&bf_put_character), NoType, 1,
+                 tapeCellType);
   DefineFunction("getCharacter", __FILE__, "getCharacter",
-                 reinterpret_cast<void *>(&bf_get_character), tapeCellType,
-                 0);
+                 reinterpret_cast<void *>(&bf_get_character), tapeCellType, 0);
   AllLocalsHaveBeenDefined();
-
-  std::cout << "tape location" << (void *) tape_ << std::endl;
 }
 
 void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
@@ -129,7 +132,6 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
     (*compiledFunction)();
     client.shutdown();
   }
-
 }
 
 /* Cache local tape values */
@@ -254,7 +256,6 @@ bool MethodBuilder::buildIL() {
   }
   // b->Return();
   b->Return(ConstInt32(69));
-  std::cout << "done compiling" << std::endl;
   return true;
 }
 
@@ -302,16 +303,37 @@ int main(int argc, char **argv) {
     exit(EXIT_SUCCESS);
   }
 
-  boost::interprocess::file_mapping mapping(filename.c_str(),
-                                            boost::interprocess::read_only);
-  boost::interprocess::mapped_region mapped_rgn(mapping,
-                                                boost::interprocess::read_only);
-  auto const mmaped_data = static_cast<char *>(mapped_rgn.get_address());
-  std::size_t mmap_size = mapped_rgn.get_size();
+  // Open the file
+  int fd = open(filename.c_str(), O_RDONLY);
+  if (fd == -1) {
+    std::cerr << " Cannot open file: \"" << filename << "\"\n";
+    perror("");
+    exit(EXIT_FAILURE);
+  }
+
+  // Get file size
+  struct stat sb;
+  if (fstat(fd, &sb) == -1) {
+    std::cerr << " Cannot stat file: \"" << filename << "\"\n";
+    perror("");
+    exit(EXIT_FAILURE);
+  }
+  std::size_t length = sb.st_size;
+
+  // mmap the code
+  char *addr = (char *)mmap(NULL, length, PROT_READ, MAP_PRIVATE, fd, 0);
+  if (addr == MAP_FAILED) {
+    std::cerr << " Cannot mmap file: \"" << filename << "\"\n";
+    perror("");
+    exit(EXIT_FAILURE);
+  }
 
   bf::BrainFuckVM bf;
   bf.setServer(server);
-  bf.runByteCodes(mmaped_data, mmap_size);
+  bf.runByteCodes(addr, length);
+
+  munmap(addr, length);
+  close(fd);
 
   omrthread_shutdown_library();
   shutdownJit();
