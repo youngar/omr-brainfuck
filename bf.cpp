@@ -13,22 +13,29 @@
 #include "ilgen/JitBuilderRecorderTextFile.hpp"
 #include "ilgen/MethodBuilder.hpp"
 #include "ilgen/TypeDictionary.hpp"
-#include "imperium/imperium.hpp"
 
+#include "imperium/imperium.hpp"
 namespace bf {
 
 using TapeCell = uint8_t;
 
-class BrainFuckVM : public TR::MethodBuilder {
+extern "C" {
+TapeCell bf_get_character() {
+  TapeCell input;
+  std::cin >> input;
+  return input;
+}
+
+void bf_put_character(TapeCell character) { std::cout << character; }
+} // extern "C"
+
+class MethodBuilder final : public TR::MethodBuilder {
 public:
-  explicit BrainFuckVM(TR::TypeDictionary *types,
-                       TR::JitBuilderRecorder *recorder = nullptr);
-  void runByteCodes(char *byteCodes, std::size_t numberOfByteCodes);
-  void andrew(char *byteCodes, std::size_t numberOfByteCodes, char * fileName);
+  explicit MethodBuilder(TR::TypeDictionary *types, char *byteCodes,
+                         std::size_t numberOfByteCodes, TapeCell *tape,
+                         TR::JitBuilderRecorder *recorder = nullptr);
 
 private:
-  static TapeCell getCharacter();
-  static void putCharacter(TapeCell character);
   bool buildIL() override;
 
   // For local caching
@@ -42,97 +49,93 @@ private:
   TR::IlType *tapeCellType;
   TR::IlType *tapeCellPointerType;
 
-  /* brainfuck mandates a minimum tape size */
-  static const std::size_t tapeSize = 30000;
-  TapeCell tape[tapeSize];
   char *byteCodes_ = nullptr;
   std::size_t numberOfByteCodes_ = 0;
+  std::string server_ = "";
+  TapeCell *tape_ = nullptr;
 };
 
-TapeCell BrainFuckVM::getCharacter() {
-  TapeCell input;
-  std::cin >> input;
-  return input;
-}
+class BrainFuckVM final {
+public:
+  void runByteCodes(char *byteCodes, std::size_t numberOfByteCodes);
+  void setServer(std::string server) { server_ = server; }
 
-void BrainFuckVM::putCharacter(TapeCell character) { std::cout << character; }
+  static const std::size_t tapeSize = 30000;
 
-BrainFuckVM::BrainFuckVM(TR::TypeDictionary *types,
-                         TR::JitBuilderRecorder *recorder)
-    : MethodBuilder(types, recorder), tapeCellType(Int8),
-      tapeCellPointerType(types->PointerTo(Int8)) {
+private:
+  std::string server_ = "";
+
+  /* brainfuck mandates the minimum tape size */
+  TapeCell tape_[tapeSize];
+};
+
+MethodBuilder::MethodBuilder(TR::TypeDictionary *types, char *byteCodes,
+                             std::size_t numberOfByteCodes, TapeCell *tape,
+                             TR::JitBuilderRecorder *recorder)
+    : TR::MethodBuilder(types, recorder), tapeCellType(Int8),
+      tapeCellPointerType(types->PointerTo(Int8)), byteCodes_(byteCodes),
+      numberOfByteCodes_(numberOfByteCodes), tape_(tape) {
+
   DefineLine(LINETOSTR(__LINE__));
   DefineFile(__FILE__);
   DefineName("brainfuck");
 
   /* tell the compiler that compiled programs do no return anything */
-  // DefineReturnType(NoType);
   DefineReturnType(Int32);
+  // DefineReturnType(NoType);
   DefineLocal("dummy", Int8);
   DefineLocal("tapeCellPointer", tapeCellPointerType);
   DefineFunction("putCharacter", __FILE__, "putCharacter",
-                 reinterpret_cast<void *>(&bf::BrainFuckVM::putCharacter),
-                 NoType, 1, tapeCellType);
+                 reinterpret_cast<void *>(&bf_put_character), NoType,
+                 1, tapeCellType);
   DefineFunction("getCharacter", __FILE__, "getCharacter",
-                 reinterpret_cast<void *>(&bf::BrainFuckVM::getCharacter),
-                 tapeCellType, 0);
+                 reinterpret_cast<void *>(&bf_get_character), tapeCellType,
+                 0);
   AllLocalsHaveBeenDefined();
-}
 
-void BrainFuckVM::andrew(char *byteCodes, std::size_t numberOfByteCodes, char *fileName) {
-  byteCodes_ = byteCodes;
-  numberOfByteCodes_ = numberOfByteCodes;
-
-  uint8_t *entryPoint;
-  OMR::Imperium::ClientChannel client("localhost:50055");
-  client.requestCompileSync(fileName, &entryPoint, this);
-
-  std::cout << (void *)entryPoint << std::endl;
-
-  /* Zero the tape */
-  std::memset(tape, 0, tapeSize);
-
-  uint32_t (*compiledFunction)() =
-    reinterpret_cast<decltype(compiledFunction)>(entryPoint);
-  (*compiledFunction)();
-
-  client.shutdown();
-
-  // uint8_t *entry;
-  // int rc = compileMethodBuilder(this, &entry);
-  // if (rc != 0) {
-  //   std::cout << "Compilation failed" << std::endl;
-  //   return;
-  // }
-
-  // void (*compiledFunction)() =
-  //     reinterpret_cast<decltype(compiledFunction)>(entry);
-  // (*compiledFunction)();
+  std::cout << "tape location" << (void *) tape_ << std::endl;
 }
 
 void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
-  byteCodes_ = byteCodes;
-  numberOfByteCodes_ = numberOfByteCodes;
 
-  /* Zero the tape */
-  std::memset(tape, 0, tapeSize);
+  uint8_t *entryPoint;
 
-  uint8_t *entry;
-  int rc = compileMethodBuilder(this, &entry);
-  if (rc != 0) {
-    std::cout << "Compilation failed" << std::endl;
-    return;
+  // Zero the tape
+  std::memset(tape_, 0, BrainFuckVM::tapeSize);
+
+  if (server_.empty()) {
+    TR::TypeDictionary types;
+    MethodBuilder mb(&types, byteCodes, numberOfByteCodes, tape_);
+
+    int rc = compileMethodBuilder(&mb, &entryPoint);
+    if (rc != 0) {
+      std::cout << "Compilation failed" << std::endl;
+      return;
+    }
+    void (*compiledFunction)() =
+        reinterpret_cast<decltype(compiledFunction)>(entryPoint);
+    (*compiledFunction)();
+  } else {
+    char *tmpFile = std::tmpnam(nullptr);
+
+    TR::TypeDictionary types;
+    TR::JitBuilderRecorderTextFile recorder(nullptr, tmpFile);
+    MethodBuilder mb(&types, byteCodes, numberOfByteCodes, tape_, &recorder);
+
+    OMR::Imperium::ClientChannel client(server_);
+    client.requestCompileSync(tmpFile, &entryPoint, &mb);
+    void (*compiledFunction)() =
+        reinterpret_cast<decltype(compiledFunction)>(entryPoint);
+    (*compiledFunction)();
+    client.shutdown();
   }
 
-  void (*compiledFunction)() =
-      reinterpret_cast<decltype(compiledFunction)>(entry);
-  (*compiledFunction)();
 }
 
 /* Cache local tape values */
-TR::IlValue *BrainFuckVM::getLocal(TR::IlBuilder *b,
-                                   std::map<int, TR::IlValue *> &locals,
-                                   int local) {
+TR::IlValue *MethodBuilder::getLocal(TR::IlBuilder *b,
+                                     std::map<int, TR::IlValue *> &locals,
+                                     int local) {
   TR::IlValue *value = nullptr;
   auto search = locals.find(local);
   if (search == locals.end()) {
@@ -146,14 +149,14 @@ TR::IlValue *BrainFuckVM::getLocal(TR::IlBuilder *b,
   return value;
 }
 
-void BrainFuckVM::setLocal(TR::IlBuilder *b,
-                           std::map<int, TR::IlValue *> &locals, int local,
-                           TR::IlValue *value) {
+void MethodBuilder::setLocal(TR::IlBuilder *b,
+                             std::map<int, TR::IlValue *> &locals, int local,
+                             TR::IlValue *value) {
   locals[local] = value;
 }
 
-void BrainFuckVM::commitLocalsToTape(TR::IlBuilder *b,
-                                     std::map<int, TR::IlValue *> &locals) {
+void MethodBuilder::commitLocalsToTape(TR::IlBuilder *b,
+                                       std::map<int, TR::IlValue *> &locals) {
   for (auto it = locals.begin(); it != locals.end(); ++it) {
     TR::IlValue *pointerLocation =
         b->Add(b->Load("tapeCellPointer"), b->ConstInt64(it->first));
@@ -163,7 +166,7 @@ void BrainFuckVM::commitLocalsToTape(TR::IlBuilder *b,
   locals.clear();
 }
 
-bool BrainFuckVM::buildIL() {
+bool MethodBuilder::buildIL() {
   std::stack<TR::IlBuilder *> openStack;
   std::stack<TR::IlBuilder *> closeStack;
   std::map<int, TR::IlValue *> locals;
@@ -172,11 +175,8 @@ bool BrainFuckVM::buildIL() {
   TR::IlBuilder *b = this;
 
   TR::IlValue *pointerLocation = nullptr;
-  b->Store("tapeCellPointer", b->ConstAddress(&tape));
+  b->Store("tapeCellPointer", b->ConstAddress(tape_));
   int64_t tapeCellPointerOffset = 0;
-
-  b->Call("putCharacter", 1, b->ConstInt8(97));
-  b->Call("putCharacter", 1, b->ConstInt8(98));
 
   for (const char *byteCode = byteCodes_;
        byteCode < &byteCodes_[numberOfByteCodes_]; byteCode++) {
@@ -252,6 +252,7 @@ bool BrainFuckVM::buildIL() {
       break;
     }
   }
+  // b->Return();
   b->Return(ConstInt32(69));
   std::cout << "done compiling" << std::endl;
   return true;
@@ -261,8 +262,18 @@ bool BrainFuckVM::buildIL() {
 
 extern bool jitBuilderShouldCompile;
 
+void printHelpInfo(char *program, std::ostream &out) {
+  out << "OMR BrainF*** Interpreter\n";
+  out << "  usage " << program << " [options] filename\n";
+  out << std::endl;
+  out << "  -h, --help     Print this help information\n";
+  out << "  -s, --server   Specify a compilation server to use\n";
+  out << std::endl;
+  out << "Fork it on github: https://github.com/youngar/omr-brainfuck\n";
+}
+
 int main(int argc, char **argv) {
-bool jitBuilderShouldCompile = true;
+  bool jitBuilderShouldCompile = true;
 
   omrthread_init_library();
 
@@ -270,9 +281,25 @@ bool jitBuilderShouldCompile = true;
     exit(EXIT_FAILURE);
   }
 
-  std::string filename;
-  if (argc > 1) {
-    filename = argv[1];
+  std::string filename = "";
+  std::string server = "";
+
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-h") == 0) {
+      printHelpInfo(argv[0], std::cout);
+    } else if (strcmp(argv[i], "--help") == 0) {
+      printHelpInfo(argv[0], std::cout);
+    } else if (strcmp(argv[i], "-s") == 0) {
+      server = argv[++i];
+    } else if (strcmp(argv[i], "--server") == 0) {
+      server = argv[++i];
+    } else {
+      filename = argv[i];
+    }
+  }
+
+  if (filename.empty()) {
+    exit(EXIT_SUCCESS);
   }
 
   boost::interprocess::file_mapping mapping(filename.c_str(),
@@ -282,14 +309,9 @@ bool jitBuilderShouldCompile = true;
   auto const mmaped_data = static_cast<char *>(mapped_rgn.get_address());
   std::size_t mmap_size = mapped_rgn.get_size();
 
-  char *fileName = std::tmpnam(NULL);
-  TR::TypeDictionary types;
-  TR::JitBuilderRecorderTextFile recorder(NULL, fileName);
-
-  bf::BrainFuckVM brainFuckVM(&types, &recorder);
-  // brainFuckVM.runByteCodes(mmaped_data, mmap_size);
-  brainFuckVM.andrew(mmaped_data, mmap_size, fileName);
-
+  bf::BrainFuckVM bf;
+  bf.setServer(server);
+  bf.runByteCodes(mmaped_data, mmap_size);
 
   omrthread_shutdown_library();
   shutdownJit();
