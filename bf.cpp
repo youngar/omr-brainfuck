@@ -265,10 +265,11 @@ extern bool jitBuilderShouldCompile;
 
 void printHelpInfo(char *program, std::ostream &out) {
   out << "OMR BrainF*** Interpreter\n";
-  out << "  usage " << program << " [options] filename\n";
+  out << "  Usage: " << program << " [options] filename\n";
   out << std::endl;
-  out << "  -h, --help     Print this help information\n";
-  out << "  -s, --server   Specify a compilation server to use\n";
+  out << "  -h, --help          Print this help information.\n";
+  out << "  -s <server>,\n";
+  out << "  --server <server>   Specify a compilation server to use.\n";
   out << std::endl;
   out << "Fork it on github: https://github.com/youngar/omr-brainfuck\n";
 }
