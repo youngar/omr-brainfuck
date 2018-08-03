@@ -19,6 +19,9 @@
 #include "ilgen/TypeDictionary.hpp"
 #include "imperium/imperium.hpp"
 
+// Should include this from Jit.hpp
+extern bool jitBuilderShouldCompile;
+
 namespace bf {
 
 using TapeCell = uint8_t;
@@ -89,7 +92,6 @@ MethodBuilder::MethodBuilder(TR::TypeDictionary *types, char *byteCodes,
   /* tell the compiler that compiled programs do no return anything */
   DefineReturnType(Int32);
   // DefineReturnType(NoType);
-  DefineLocal("dummy", Int8);
   DefineLocal("tapeCellPointer", tapeCellPointerType);
   DefineFunction("putCharacter", __FILE__, "putCharacter",
                  reinterpret_cast<void *>(&bf_put_character), NoType, 1,
@@ -261,8 +263,6 @@ bool MethodBuilder::buildIL() {
 
 } // namespace bf
 
-extern bool jitBuilderShouldCompile;
-
 void printHelpInfo(char *program, std::ostream &out) {
   out << "OMR BrainF*** Interpreter\n";
   out << "  Usage: " << program << " [options] filename\n";
@@ -275,13 +275,8 @@ void printHelpInfo(char *program, std::ostream &out) {
 }
 
 int main(int argc, char **argv) {
-  bool jitBuilderShouldCompile = true;
 
   omrthread_init_library();
-
-  if (!initializeJit()) {
-    exit(EXIT_FAILURE);
-  }
 
   std::string filename = "";
   std::string server = "";
@@ -326,6 +321,17 @@ int main(int argc, char **argv) {
   if (addr == MAP_FAILED) {
     std::cerr << " Cannot mmap file: \"" << filename << "\"\n";
     perror("");
+    exit(EXIT_FAILURE);
+  }
+
+  // hack: disable local compilation if we're using the server
+  if (server.empty()) {
+    jitBuilderShouldCompile = true;
+  } else {
+    jitBuilderShouldCompile = false;
+  }
+
+  if (!initializeJit()) {
     exit(EXIT_FAILURE);
   }
 
