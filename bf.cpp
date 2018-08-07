@@ -19,9 +19,6 @@
 #include "ilgen/TypeDictionary.hpp"
 #include "imperium/imperium.hpp"
 
-// Should include this from Jit.hpp
-extern bool jitBuilderShouldCompile;
-
 namespace bf {
 
 using TapeCell = uint8_t;
@@ -92,7 +89,7 @@ MethodBuilder::MethodBuilder(TR::TypeDictionary *types, char *byteCodes,
   /* tell the compiler that compiled programs do no return anything */
   DefineReturnType(Int32);
   // DefineReturnType(NoType);
-  DefineLocal("tapeCellPointer", tapeCellPointerType);
+  DefineParameter("tapeCellPointer", tapeCellPointerType);
   DefineFunction("putCharacter", __FILE__, "putCharacter",
                  reinterpret_cast<void *>(&bf_put_character), NoType, 1,
                  tapeCellType);
@@ -117,9 +114,9 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
       std::cout << "Compilation failed" << std::endl;
       return;
     }
-    void (*compiledFunction)() =
+    void (*compiledFunction)(TapeCell *) =
         reinterpret_cast<decltype(compiledFunction)>(entryPoint);
-    (*compiledFunction)();
+    (*compiledFunction)(tape_);
   } else {
     char *tmpFile = std::tmpnam(nullptr);
 
@@ -129,9 +126,9 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
 
     OMR::Imperium::ClientChannel client(server_);
     client.requestCompileSync(tmpFile, &entryPoint, &mb);
-    void (*compiledFunction)() =
+    void (*compiledFunction)(TapeCell *) =
         reinterpret_cast<decltype(compiledFunction)>(entryPoint);
-    (*compiledFunction)();
+    (*compiledFunction)(tape_);
     client.shutdown();
   }
 }
@@ -179,7 +176,7 @@ bool MethodBuilder::buildIL() {
   TR::IlBuilder *b = this;
 
   TR::IlValue *pointerLocation = nullptr;
-  b->Store("tapeCellPointer", b->ConstAddress(tape_));
+  // b->Store("tapeCellPointer", b->ConstAddress(tape_));
   int64_t tapeCellPointerOffset = 0;
 
   for (const char *byteCode = byteCodes_;
@@ -322,13 +319,6 @@ int main(int argc, char **argv) {
     std::cerr << " Cannot mmap file: \"" << filename << "\"\n";
     perror("");
     exit(EXIT_FAILURE);
-  }
-
-  // hack: disable local compilation if we're using the server
-  if (server.empty()) {
-    jitBuilderShouldCompile = true;
-  } else {
-    jitBuilderShouldCompile = false;
   }
 
   if (!initializeJit()) {
