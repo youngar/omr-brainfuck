@@ -11,4 +11,11 @@ add_subdirectory(omr)
 
 add_executable(bf bf.cpp)
 
+
+if (APPLE)
+	set_property(TARGET bf
+		APPEND_STRING PROPERTY LINK_FLAGS " -Wl,-no_pie"
+	)
+endif()
+
 target_link_libraries(bf PRIVATE imperium)
