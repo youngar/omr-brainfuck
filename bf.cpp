@@ -38,7 +38,7 @@ void bf_put_character(TapeCell character) { std::cout << character; }
 class MethodBuilder final : public TR::MethodBuilder {
 public:
   explicit MethodBuilder(TR::TypeDictionary *types, char *byteCodes,
-                         std::size_t numberOfByteCodes, TapeCell *tape,
+                         std::size_t numberOfByteCodes,
                          TR::JitBuilderRecorder *recorder = nullptr);
 
 private:
@@ -76,19 +76,18 @@ private:
 };
 
 MethodBuilder::MethodBuilder(TR::TypeDictionary *types, char *byteCodes,
-                             std::size_t numberOfByteCodes, TapeCell *tape,
+                             std::size_t numberOfByteCodes,
                              TR::JitBuilderRecorder *recorder)
     : TR::MethodBuilder(types, recorder), tapeCellType(Int8),
       tapeCellPointerType(types->PointerTo(Int8)), byteCodes_(byteCodes),
-      numberOfByteCodes_(numberOfByteCodes), tape_(tape) {
+      numberOfByteCodes_(numberOfByteCodes) {
 
   DefineLine(LINETOSTR(__LINE__));
   DefineFile(__FILE__);
   DefineName("brainfuck");
 
   /* tell the compiler that compiled programs do no return anything */
-  DefineReturnType(Int32);
-  // DefineReturnType(NoType);
+  DefineReturnType(NoType);
   DefineParameter("tapeCellPointer", tapeCellPointerType);
   DefineFunction("putCharacter", __FILE__, "putCharacter",
                  reinterpret_cast<void *>(&bf_put_character), NoType, 1,
@@ -107,7 +106,7 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
 
   if (server_.empty()) {
     TR::TypeDictionary types;
-    MethodBuilder mb(&types, byteCodes, numberOfByteCodes, tape_);
+    MethodBuilder mb(&types, byteCodes, numberOfByteCodes);
 
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
@@ -130,7 +129,7 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
 
     TR::TypeDictionary types;
     TR::JitBuilderRecorderTextFile recorder(nullptr, tmpFile);
-    MethodBuilder mb(&types, byteCodes, numberOfByteCodes, tape_, &recorder);
+    MethodBuilder mb(&types, byteCodes, numberOfByteCodes, &recorder);
 
     OMR::Imperium::ClientChannel client(server_);
 
@@ -192,7 +191,6 @@ bool MethodBuilder::buildIL() {
   TR::IlBuilder *b = this;
 
   TR::IlValue *pointerLocation = nullptr;
-  // b->Store("tapeCellPointer", b->ConstAddress(tape_));
   int64_t tapeCellPointerOffset = 0;
 
   for (const char *byteCode = byteCodes_;
@@ -269,8 +267,7 @@ bool MethodBuilder::buildIL() {
       break;
     }
   }
-  // b->Return();
-  b->Return(ConstInt32(69));
+  b->Return();
   return true;
 }
 
