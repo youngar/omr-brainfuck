@@ -109,11 +109,17 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
     TR::TypeDictionary types;
     MethodBuilder mb(&types, byteCodes, numberOfByteCodes, tape_);
 
+    std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
+
     int rc = compileMethodBuilder(&mb, &entryPoint);
     if (rc != 0) {
       std::cout << "Compilation failed" << std::endl;
       return;
     }
+    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+    std::cout << "Duration of compilation on client: " << duration << " microseconds." << '\n';
+
     void (*compiledFunction)(TapeCell *) =
         reinterpret_cast<decltype(compiledFunction)>(entryPoint);
     (*compiledFunction)(tape_);
@@ -125,7 +131,15 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
     MethodBuilder mb(&types, byteCodes, numberOfByteCodes, tape_, &recorder);
 
     OMR::Imperium::ClientChannel client(server_);
+
+    std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
+
     client.requestCompileSync(tmpFile, &entryPoint, &mb);
+
+    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+    std::cout << "Duration of compilation on server: " << duration << " microseconds." << '\n';
+
     void (*compiledFunction)(TapeCell *) =
         reinterpret_cast<decltype(compiledFunction)>(entryPoint);
     (*compiledFunction)(tape_);
