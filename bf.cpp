@@ -111,6 +111,8 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
 
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
+    std::cout << std::endl << "Running compilation on client..." << std::endl;
+
     int rc = compileMethodBuilder(&mb, &entryPoint);
     if (rc != 0) {
       std::cout << "Compilation failed" << std::endl;
@@ -118,7 +120,7 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
     }
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
-    std::cout << "Duration of compilation on client: " << duration << " microseconds." << '\n';
+    std::cout << "Duration of compilation on client: " << duration << " microseconds." << "\n\n";
 
     void (*compiledFunction)(TapeCell *) =
         reinterpret_cast<decltype(compiledFunction)>(entryPoint);
@@ -138,7 +140,7 @@ void BrainFuckVM::runByteCodes(char *byteCodes, std::size_t numberOfByteCodes) {
 
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
-    std::cout << "Duration of compilation on server: " << duration << " microseconds." << '\n';
+    std::cout << "Server response received in: " << duration << " microseconds." << "\n\n";
 
     void (*compiledFunction)(TapeCell *) =
         reinterpret_cast<decltype(compiledFunction)>(entryPoint);
