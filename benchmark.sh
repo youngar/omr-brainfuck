@@ -14,7 +14,7 @@ collect_stats() {
         local current_time=$(date +"%s.%3N")
         local temp=0$(echo "scale=3; $current_time - $start_time" | bc)
         echo " $temp"  >> $logname
-        sleep 0.2
+        sleep 0.1
     done
 }
 
