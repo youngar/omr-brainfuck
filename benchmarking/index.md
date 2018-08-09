@@ -3,9 +3,13 @@
 ![Client Only](client_only.png)
 
 ## Client and Server
-![Client Only](imperium_client.png)
-![Client Only](imperium_server.png)
+### Imperium Client
+![imperium_client](imperium_client.png)
+### Imperium Server
+![imperium_server](imperium_server.png)
 
 ## Client x2 and Server
-![Client Only](imperium_client2.png)
-![Client Only](imperium_server2.png)
+### Imperium Client
+![imperium_client](imperium_client2.png)
+### Imperium Server
+![imperium_server](imperium_server2.png)
