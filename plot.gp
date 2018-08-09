@@ -23,4 +23,4 @@ set format x "%s"
 set style data lines
 
 plot ARG1 using 3:1 with lines axes x1y1 title "%CPU", \
-     ARG1 using 3:2 with lines axes x1y2 title "Memory"
+     ARG1 using 3:($2 *1024) with lines axes x1y2 title "Memory"
